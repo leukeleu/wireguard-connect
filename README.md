@@ -6,7 +6,7 @@ A GitHub Actions composite action that sets up a WireGuard VPN connection on Ubu
 
 ```yaml
 - name: Connect to VPN
-  uses: leukeleu/wireguard-action@main
+  uses: leukeleu/wireguard-connect@main
   with:
     WIREGUARD_CONFIG: ${{ secrets.WIREGUARD_CONFIG }}
 ```
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Connect to VPN
-        uses: leukeleu/wireguard-action@main
+        uses: leukeleu/wireguard-connect@main
         with:
           WIREGUARD_CONFIG: ${{ secrets.WIREGUARD_CONFIG }}
 

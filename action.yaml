@@ -1,0 +1,17 @@
+name: WireGuard connection
+description: Quickly set up a WireGuard connection
+
+inputs:
+  WIREGUARD_CONFIG:
+    description: WireGuard configuration
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Setup WireGuard connection
+      run: |
+        sudo apt install resolvconf wireguard
+        sudo bash -c 'echo "${{ inputs.WIREGUARD_CONFIG }}" > /etc/wireguard/wg0.conf && chmod 600 /etc/wireguard/wg0.conf'
+        sudo wg-quick up wg0
+      shell: bash

@@ -5,13 +5,81 @@ inputs:
   WIREGUARD_CONFIG:
     description: WireGuard configuration
     required: true
+  VERIFY_HOSTNAME:
+    description: A hostname to test resolution against after the tunnel is up. Leave empty to skip this check.
+    required: false
+    default: ''
 
 runs:
   using: composite
   steps:
-    - name: Setup WireGuard connection
+    - name: Install WireGuard
       run: |
-        sudo apt install resolvconf wireguard
-        sudo bash -c 'echo "${{ inputs.WIREGUARD_CONFIG }}" > /etc/wireguard/wg0.conf && chmod 600 /etc/wireguard/wg0.conf'
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y resolvconf wireguard
+      shell: bash
+
+    - name: Write config
+      env:
+        WG_CONFIG: ${{ inputs.WIREGUARD_CONFIG }}
+      run: |
+        set -euo pipefail
+        sudo install -m 600 /dev/stdin /etc/wireguard/wg0.conf <<< "$WG_CONFIG"
+      shell: bash
+
+    - name: Bring up WireGuard
+      run: |
+        set -euo pipefail
         sudo wg-quick up wg0
+      shell: bash
+
+    - name: Wait for handshake
+      run: |
+        set -euo pipefail
+        echo "Waiting for WireGuard handshake..."
+        for i in {1..15}; do
+          if sudo wg show wg0 latest-handshakes | awk '$2 != "" && $2 != "0" {ok=1} END {exit !ok}'; then
+            echo "Handshake confirmed after ${i}s"
+            sudo wg show wg0
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::No WireGuard handshake after 15s"
+        sudo wg show wg0
+        exit 1
+      shell: bash
+
+    - name: Wait for DNS registration
+      run: |
+        set -euo pipefail
+        echo "Waiting for DNS registration on wg0..."
+        for i in {1..10}; do
+          if resolvectl status wg0 2>/dev/null | grep -q "DNS Servers"; then
+            echo "DNS confirmed after ${i}s"
+            resolvectl status wg0
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::warning::No DNS servers registered on wg0 after 10s (config may not set DNS=)"
+      shell: bash
+
+    - name: Verify name resolution
+      if: ${{ inputs.VERIFY_HOSTNAME != '' }}
+      env:
+        VERIFY_HOSTNAME: ${{ inputs.VERIFY_HOSTNAME }}
+      run: |
+        set -euo pipefail
+        for i in {1..10}; do
+          if resolvectl query "$VERIFY_HOSTNAME" >/dev/null 2>&1; then
+            echo "Resolution confirmed after ${i}s"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::Could not resolve $VERIFY_HOSTNAME through wg0"
+        resolvectl query "$VERIFY_HOSTNAME" || true
+        exit 1
       shell: bash

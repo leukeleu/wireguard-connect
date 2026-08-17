@@ -16,12 +16,16 @@ A GitHub Actions composite action that sets up a WireGuard VPN connection on Ubu
 | Input | Required | Description |
 |---|---|---|
 | `WIREGUARD_CONFIG` | Yes | Full WireGuard configuration file contents (store this as a repository or organization secret) |
+| `VERIFY_HOSTNAME` | No | A hostname to test resolution against after the tunnel is up. Leave empty to skip this check. |
 
 ## How it works
 
 1. Installs `wireguard` and `resolvconf` via `apt`
 2. Writes the configuration to `/etc/wireguard/wg0.conf` (mode `600`)
 3. Brings up the tunnel with `wg-quick up wg0`
+4. Waits up to 15s for a WireGuard handshake, failing the step if none is established
+5. Waits up to 10s for DNS servers to register on `wg0` (warns if the config does not set `DNS=`)
+6. If `VERIFY_HOSTNAME` is set, waits up to 10s for that hostname to resolve through `wg0`, failing the step if it cannot
 
 ## Requirements
 
@@ -44,6 +48,7 @@ jobs:
         uses: leukeleu/wireguard-connect@main
         with:
           WIREGUARD_CONFIG: ${{ secrets.WIREGUARD_CONFIG }}
+          VERIFY_HOSTNAME: internal.example.com
 
       - name: Deploy
         run: ./deploy.sh

@@ -78,21 +78,6 @@ runs:
         exit 1
       shell: bash
 
-    - name: Wait for DNS registration
-      run: |
-        set -euo pipefail
-        echo "Waiting for DNS registration on wg0..."
-        for i in {1..10}; do
-          if resolvectl status wg0 2>/dev/null | grep -q "DNS Servers"; then
-            echo "DNS confirmed after ${i}s"
-            resolvectl status wg0
-            exit 0
-          fi
-          sleep 1
-        done
-        echo "::warning::No DNS servers registered on wg0 after 10s (config may not set DNS=)"
-      shell: bash
-
     - name: Verify name resolution
       if: ${{ inputs.VERIFY_HOSTNAME != '' }}
       env:

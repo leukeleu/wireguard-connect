@@ -26,8 +26,7 @@ A GitHub Actions composite action that sets up a WireGuard VPN connection on Ubu
 4. Brings up the tunnel with `wg-quick up wg0`
 5. Adds static routes for GitHub's IP ranges through the runner's original gateway, so the runner <-> GitHub connection survives the VPN's default-route takeover
 6. Waits up to 15s for a WireGuard handshake, failing the step if none is established
-7. Waits up to 10s for DNS servers to register on `wg0` (warns if the config does not set `DNS=`)
-8. If `VERIFY_HOSTNAME` is set, waits up to 10s for that hostname to resolve through `wg0`, failing the step if it cannot
+7. If `VERIFY_HOSTNAME` is set, waits up to 10s for that hostname to resolve through `wg0`, failing the step if it cannot
 
 ## Requirements
 

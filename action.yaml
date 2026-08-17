@@ -31,7 +31,34 @@ runs:
     - name: Bring up WireGuard
       run: |
         set -euo pipefail
+        # Save original default route before VPN takes over
+        ORIG_GW=$(ip route show default | awk '{print $3; exit}')
+        ORIG_DEV=$(ip route show default | awk '{print $5; exit}')
+        echo "Original gateway: $ORIG_GW via $ORIG_DEV"
+
+        # Fetch GitHub IP ranges while original routing is still active
+        GITHUB_RANGES=$(curl -fsSL --max-time 5 https://api.github.com/meta 2>/dev/null \
+          | jq -r '.actions[], .api[], .git[]' 2>/dev/null \
+          | grep -E '^[0-9]+\.' \
+          | sort -u) || GITHUB_RANGES=""
+
+        if [ -n "$GITHUB_RANGES" ]; then
+          echo "Fetched $(echo "$GITHUB_RANGES" | wc -l) GitHub IP ranges"
+        else
+          echo "::warning::Could not fetch GitHub IP ranges; runner connection may be unstable"
+        fi
+
+        # Bring up WireGuard
         sudo wg-quick up wg0
+
+        # Route GitHub traffic through original gateway to keep runner connected
+        if [ -n "$GITHUB_RANGES" ]; then
+          while IFS= read -r net; do
+            [ -n "$net" ] || continue
+            sudo ip route add "$net" via "$ORIG_GW" dev "$ORIG_DEV" 2>/dev/null || true
+          done <<< "$GITHUB_RANGES"
+          echo "GitHub routes added via original gateway"
+        fi
       shell: bash
 
     - name: Wait for handshake

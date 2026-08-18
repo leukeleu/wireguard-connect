@@ -78,20 +78,70 @@ runs:
         exit 1
       shell: bash
 
+    - name: Register DNS
+      run: |
+        set -euo pipefail
+        DNS_LINE=$(sudo awk -F= '/^[[:space:]]*DNS[[:space:]]*=/ {sub(/^[^=]*=[[:space:]]*/,""); print; exit}' /etc/wireguard/wg0.conf)
+
+        if [ -z "$DNS_LINE" ]; then
+          echo "::warning::No DNS= line in wg0.conf"
+          exit 0
+        fi
+
+        DNS_SERVERS=()
+        DNS_DOMAINS=()
+        IFS=',' read -ra ENTRIES <<< "$DNS_LINE"
+        for entry in "${ENTRIES[@]}"; do
+          entry="$(echo "$entry" | xargs)"
+          [ -z "$entry" ] && continue
+          if [[ "$entry" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || [[ "$entry" == *:* && "$entry" =~ ^[0-9a-fA-F:]+$ ]]; then
+            DNS_SERVERS+=("$entry")
+          else
+            DNS_DOMAINS+=("$entry")
+          fi
+        done
+
+        if [ ${#DNS_SERVERS[@]} -gt 0 ]; then
+          sudo resolvectl dns wg0 "${DNS_SERVERS[@]}"
+          echo "Registered DNS servers on wg0: ${DNS_SERVERS[*]}"
+
+          # Set ~. as routing domain so resolved actually sends queries to
+          # wg0's DNS server. Also set search domains from config for
+          # single-label name qualification.
+          DOMAIN_ARGS=("${DNS_DOMAINS[@]}" "~.")
+          sudo resolvectl domain wg0 "${DOMAIN_ARGS[@]}"
+          echo "Registered domains on wg0: ${DOMAIN_ARGS[*]}"
+        fi
+
+        # Ensure /etc/resolv.conf points to systemd-resolved stub so that
+        # glibc-based tools (ssh, curl, etc.) route DNS through systemd-resolved,
+        # which we just configured with wg0's DNS servers and ~. routing domain.
+        # The resolvconf package may have replaced the symlink with its own file
+        # pointing at the runner's original DNS servers.
+        if ! grep -q '^nameserver 127.0.0.53' /etc/resolv.conf 2>/dev/null; then
+          sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+          echo "Updated /etc/resolv.conf -> systemd-resolved stub"
+        fi
+
+        resolvectl status wg0
+      shell: bash
+
     - name: Verify name resolution
       if: ${{ inputs.VERIFY_HOSTNAME != '' }}
       env:
         VERIFY_HOSTNAME: ${{ inputs.VERIFY_HOSTNAME }}
       run: |
         set -euo pipefail
+        echo "Verifying name resolution for $VERIFY_HOSTNAME..."
         for i in {1..10}; do
-          if resolvectl query "$VERIFY_HOSTNAME" >/dev/null 2>&1; then
+          if getent ahosts "$VERIFY_HOSTNAME" >/dev/null 2>&1; then
             echo "Resolution confirmed after ${i}s"
+            getent ahosts "$VERIFY_HOSTNAME"
             exit 0
           fi
           sleep 1
         done
-        echo "::error::Could not resolve $VERIFY_HOSTNAME through wg0"
-        resolvectl query "$VERIFY_HOSTNAME" || true
+        echo "::error::Could not resolve $VERIFY_HOSTNAME"
+        getent ahosts "$VERIFY_HOSTNAME" || true
         exit 1
       shell: bash
